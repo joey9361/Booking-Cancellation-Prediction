@@ -5,6 +5,7 @@ import pandas as pd
 from sklearn.preprocessing import OneHotEncoder
 from src.exceptions import CustomException
 import sys
+import json
 
 ARTIFACTS_DIR = PROJECT_ROOT / "src" / "artifacts" 
 
@@ -78,3 +79,29 @@ def load_madeby_encoder() -> OneHotEncoder:
         raise CustomException(f"Error loading madeby encoder: {e}", sys)
 
     
+def save_prediction_artifacts(filedir: Path, threshold: float, model_path: str) -> None:
+    filedir.mkdir(parents=True, exist_ok=True)
+    if type(float(threshold)) != float:
+        raise TypeError(f"Threshold must be a float, got {type(threshold)}")
+    threshold_artifacts = {
+        "threshold": float(threshold),
+        "model_path": str(model_path)
+    }
+    filepath = filedir / "prediction_artifacts.json"
+    with open(filepath, 'w') as f:
+        json.dump(threshold_artifacts, f)
+
+def load_saved_prediction_artifacts(filepath: Path | None) -> dict:
+    if filepath is None:
+        filepath = ARTIFACTS_DIR / "prediction_artifacts.json"
+    if not filepath.exists():
+        raise FileNotFoundError(f"File {filepath} not found")
+    with open(filepath, 'r') as f:
+        prediction_artifacts = json.load(f)
+    if not isinstance(prediction_artifacts["threshold"], float):
+        raise TypeError(f"Threshold must be a float, got {type(prediction_artifacts["threshold"])}")
+    if not isinstance(prediction_artifacts["model_path"], str):
+        raise TypeError(f"Model path must be a string, got {type(prediction_artifacts["model_path"])}")
+    if not Path(prediction_artifacts["model_path"]).exists():
+        raise FileNotFoundError(f"Model path {prediction_artifacts["model_path"]} not found")
+    return prediction_artifacts
