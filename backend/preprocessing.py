@@ -127,7 +127,7 @@ def transform_room_code(df: pd.DataFrame, lookup_table: pd.DataFrame) -> None:
     )
     placeholders_impute.index = placeholders.index
     df.loc[placeholder_mask, 'room_code'] = placeholders_impute['modal_room_code']
-    df.loc[placeholder_mask & df["room_code"].isna(), "room_code"] = "Unknown"
+    df.loc[df["room_code"].isna(), "room_code"] = "Unknown"
 
 
 def _room_rate_filter(df: pd.DataFrame) -> pd.Series:
@@ -164,13 +164,20 @@ def transform_room_rate(df: pd.DataFrame, lookup_table: pd.DataFrame) -> None:
     historical_imputation = df.loc[~rate_mask].merge(lookup_table, on='room_code', how='left')
     historical_imputation.index = df.loc[~rate_mask].index
     df.loc[~rate_mask, 'room_rate'] = historical_imputation['historical_room_rate']
-
+    # impute room_rate for rows with uncalculable room_rate and invalid room_code with unknown historical_room_rate
+    df.loc[df['room_rate'].isna(), 'room_rate'] = (lookup_table
+                                                .loc[
+                                                    lookup_table['room_code'] == 'Unknown',
+                                                    'historical_room_rate'
+                                                    ].iloc[0]
+                                                )
+    return df
 
 def _clean_lead_time(df: pd.DataFrame) -> pd.DataFrame:
     df = df[df["lead_time_days"] >= 0].copy()
     df["lead_time_days"] = df["lead_time_days"].clip(upper=525)
     if df.empty:
-        raise CustomException("Lead time is invalid for inference, fix source dates", sys)
+        raise ValueError("Lead time is invalid for inference, fix source dates") 
     return df
 
 
@@ -220,12 +227,12 @@ def custom_OHE(df: pd.DataFrame, column: str, OH_encoder: OneHotEncoder) -> pd.D
 
 
 def model_compatible_dfs(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series | None]:
-    try:
         X = df.drop(_MODEL_DROP_COLS, axis=1, errors='ignore')
         Y = df['is_cancelled'] 
+        if X.empty:
+            raise ValueError("X dataframe is empty, no valid rows for training or inference")
         return X, Y
-    except Exception as e:
-        raise CustomException(f"Error creating model compatible dfs: {e}", sys)
+
 
 
 def run_offline_preprocessing(
@@ -240,6 +247,7 @@ def run_offline_preprocessing(
     df = clean_data(df, is_offline=True)
     df = room_level_preprocessing(df, is_offline=True)
     full_train, full_val, full_test = split_data(df)
+    full_train.sort_values(by='booked on', ascending=True, inplace=True)
     room_code_lookup = fit_room_code(full_train)
     if room_code_lookup.empty:
         raise CustomException("Room code lookup table is empty", sys)
