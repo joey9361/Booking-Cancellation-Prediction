@@ -1,32 +1,35 @@
 import pandas as pd
 import numpy as np
-from src.config.settings import USELESS_COLS, MOTEL_DIRECT_CHANNEL, BOOKING_KEY
+from typing import Any
+from src.config.settings import MOTEL_DIRECT_CHANNEL, BOOKING_KEY
 from sklearn.preprocessing import OneHotEncoder
 from src.exceptions import CustomException
 import sys
 from src.artifacts.artifacts import save_lookup_artifacts, load_lookup_artifacts, save_madeby_encoder, load_madeby_encoder
 
-_MODEL_DROP_COLS = ['ref', 'arrival_date', 'departure_date', 'person_nights', 'is_cancelled']
+_MODEL_DROP_COLS = ['ref', 'booked_on', 'arrival_date', 'departure_date', 'person_nights', 'is_cancelled']
 
 
-def _ensure_dataframe(df: pd.DataFrame | pd.Series | dict) -> pd.DataFrame:
+def _ensure_dataframe(df: pd.DataFrame | pd.Series | list[dict[str, Any]]) -> pd.DataFrame:
     """Normalize API payloads to a room-level DataFrame (single-row inference included)."""
     if isinstance(df, pd.DataFrame):
         return df
     if isinstance(df, pd.Series):
-        return df.to_frame().T
-    if isinstance(df, dict):
-        return pd.DataFrame([df])
+        return df.to_frame().T 
+    if isinstance(df, list):
+        return pd.DataFrame(df)
     raise CustomException("Invalid input type", sys)
 
 
-def clean_data(df: pd.DataFrame, is_offline: bool = True) -> pd.DataFrame:
+def clean_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Clean the raw source data pulled from the database so it is ready for feature engineering.
+    Don't need to drop columns because the database query already excludes them.
+    Database query also excludes rows with null room_code.
+    """
     df['madeby'] = df['madeby'].fillna('136bealey')
-    df = df.drop(columns=USELESS_COLS, axis=1, errors='ignore')
     df.loc[df['madeby'].isin(MOTEL_DIRECT_CHANNEL), 'madeby'] = '136bealey'
     df = df[(df['pax'] > 0) & (df['nights'] > 0)]
-    if is_offline:
-        df = df[df['room_code'].notna()]
     return df
 
 
@@ -183,6 +186,7 @@ def _clean_lead_time(df: pd.DataFrame) -> pd.DataFrame:
 
 def _booking_agg_spec(is_offline: bool) -> dict:
     agg_spec = {
+        'booked_on': ('booked on', 'min'),
         'madeby': ('madeby', 'first'),
         'has_customer_notes': ('has_customer_notes', 'first'),
         'is_domestic': ('is_domestic', 'first'),
@@ -207,13 +211,13 @@ def booking_level_preprocessing(df: pd.DataFrame, is_offline: bool) -> pd.DataFr
     # helpers for aggregation
     df["room_revenue"] = df["room_rate"] * df["nights"]
     df["person_nights"] = df["pax"] * df["nights"]
-# ['ref', 'is_136_motel', 'arrival_date', 'departure_date']
+
     bookings = df.groupby(BOOKING_KEY if is_offline else ['ref'], as_index=False).aggregate(
         **_booking_agg_spec(is_offline)
     )
     bookings['average_price_pp'] = bookings['total_room_revenue'] / bookings['person_nights'] 
     bookings = _clean_lead_time(bookings)
-    return bookings
+    return bookings.sort_values(by='booked_on', ascending=True)
 
 
 def custom_OHE(df: pd.DataFrame, column: str, OH_encoder: OneHotEncoder) -> pd.DataFrame:
@@ -244,24 +248,28 @@ def run_offline_preprocessing(
     and the fitted one hot encoder as artifacts.
     """
     df = _ensure_dataframe(df)
-    df = clean_data(df, is_offline=True)
+    df = clean_data(df)
     df = room_level_preprocessing(df, is_offline=True)
     full_train, full_val, full_test = split_data(df)
-    full_train.sort_values(by='booked on', ascending=True, inplace=True)
+
     room_code_lookup = fit_room_code(full_train)
     if room_code_lookup.empty:
         raise CustomException("Room code lookup table is empty", sys)
     transform_room_code(full_train, room_code_lookup)
+
     room_rate_lookup = fit_room_rate(full_train)
     if room_rate_lookup.empty:
         raise CustomException("Room rate lookup table is empty", sys)
     transform_room_rate(full_train, room_rate_lookup)
+
     full_train = booking_level_preprocessing(full_train, is_offline=True)
     if full_train.empty:
         raise CustomException("Booking level preprocessing resulted in empty dataframe", sys)
+
     OH_encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
     OH_encoder.fit(full_train[['madeby']])
     full_train = custom_OHE(full_train, 'madeby', OH_encoder)
+
     X_train, Y_train = model_compatible_dfs(full_train)
     # save artifacts
     save_lookup_artifacts(room_code_lookup, room_rate_lookup)
@@ -269,9 +277,9 @@ def run_offline_preprocessing(
     return X_train, Y_train, full_val, full_test
 
 
-def run_online_preprocessing(df: pd.DataFrame | pd.Series | dict) -> pd.DataFrame:
+def run_online_preprocessing(df: pd.DataFrame | pd.Series | list[dict[str, Any]]) -> pd.DataFrame:
     df = _ensure_dataframe(df)
-    df = clean_data(df, is_offline=False)
+    df = clean_data(df)
     if df.empty:
         raise CustomException("Dataframe is empty, clean_data failed, fix source data", sys)
     df = room_level_preprocessing(df, is_offline=False)
