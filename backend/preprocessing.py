@@ -5,7 +5,8 @@ from src.config.settings import MOTEL_DIRECT_CHANNEL, BOOKING_KEY
 from sklearn.preprocessing import OneHotEncoder
 from src.exceptions import CustomException
 import sys
-from src.artifacts.artifacts import save_lookup_artifacts, load_lookup_artifacts, save_madeby_encoder, load_madeby_encoder
+from src.artifacts.artifacts import save_preprocessing_artifacts
+
 
 _MODEL_DROP_COLS = ['ref', 'booked_on', 'arrival_date', 'departure_date', 'person_nights', 'is_cancelled']
 
@@ -272,22 +273,24 @@ def run_offline_preprocessing(
 
     X_train, Y_train = model_compatible_dfs(full_train)
     # save artifacts
-    save_lookup_artifacts(room_code_lookup, room_rate_lookup)
-    save_madeby_encoder(OH_encoder)
+    save_preprocessing_artifacts(room_code_lookup, room_rate_lookup, OH_encoder)
     return X_train, Y_train, full_val, full_test
 
 
-def run_online_preprocessing(df: pd.DataFrame | pd.Series | list[dict[str, Any]]) -> pd.DataFrame:
+def run_online_preprocessing(
+    df: pd.DataFrame | pd.Series | list[dict[str, Any]],
+    room_code_lookup: pd.DataFrame,
+    room_rate_lookup: pd.DataFrame,
+    OH_encoder: OneHotEncoder
+) -> pd.DataFrame:
     df = _ensure_dataframe(df)
     df = clean_data(df)
     if df.empty:
         raise CustomException("Dataframe is empty, clean_data failed, fix source data", sys)
     df = room_level_preprocessing(df, is_offline=False)
-    # load artifacts
-    room_code_lookup, room_rate_lookup = load_lookup_artifacts()
+
     if room_code_lookup.empty or room_rate_lookup.empty:
         raise CustomException("Lookup table artifacts are empty, run offline preprocessing first", sys)
-    OH_encoder = load_madeby_encoder()
     X, _ = full_custom_transform(
         df, room_code_lookup, room_rate_lookup, OH_encoder, is_offline=False
     )
