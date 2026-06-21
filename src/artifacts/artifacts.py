@@ -13,114 +13,114 @@ ROOM_CODE_LOOKUP_FILE = "room_code_lookup.joblib"
 HISTORICAL_RATES_FILE = "historical_room_rates.joblib"
 MADEBY_ENCODER_FILE = "madeby_encoder.joblib"
 
-def save_room_code_lookup(
-    lookup: pd.DataFrame
-    ) -> None:
-    path = ARTIFACTS_PATH
-    path.mkdir(parents=True, exist_ok=True)
-    file_path = path / ROOM_CODE_LOOKUP_FILE
-    joblib.dump(lookup, file_path)
-
-
-def load_room_code_lookup() -> pd.DataFrame:
-    try:
-        file_path = ARTIFACTS_PATH / ROOM_CODE_LOOKUP_FILE
-        return joblib.load(file_path)
-    except Exception as e:
-        raise CustomException(f"Error loading room code lookup: {e}", sys)
-
-def save_historical_room_rates(
-    rates: pd.DataFrame,
+def save_joblib_artifacts(
+    filepath: Path,
+    artifact: pd.DataFrame | OneHotEncoder
 ) -> None:
     path = ARTIFACTS_PATH
     path.mkdir(parents=True, exist_ok=True)
-    file_path = path / HISTORICAL_RATES_FILE
-    joblib.dump(rates, file_path)
+    file_path = path / filepath
+    joblib.dump(artifact, file_path)
+    logging.info(f"Artifact saved to {file_path}")
 
-
-def load_historical_room_rates() -> pd.DataFrame:
+def load_joblib_artifacts(filepath: Path) -> pd.DataFrame | OneHotEncoder:
     try:
-        file_path = ARTIFACTS_PATH / HISTORICAL_RATES_FILE
-        return joblib.load(file_path)
+        joblib.load(filepath)
+    except FileNotFoundError as e:
+        logging.error(f"File not found: {e}")
+        raise CustomException(f"File not found: {e}", sys)
     except Exception as e:
-        raise CustomException(f"Error loading historical room rates: {e}", sys)
+        logging.error(f"Error loading joblib artifacts: {e}")
+        raise CustomException(f"Error loading joblib artifacts: {e}", sys)
 
-
-def save_lookup_artifacts(
+def save_preprocessing_artifacts(
     room_code_lookup: pd.DataFrame,
-    historical_room_rates: pd.DataFrame
+    historical_room_rates: pd.DataFrame,
+    OH_encoder: OneHotEncoder
 ) -> None:
-    save_room_code_lookup(room_code_lookup)
-    save_historical_room_rates(historical_room_rates)
+    save_joblib_artifacts(ROOM_CODE_LOOKUP_FILE, room_code_lookup)
+    save_joblib_artifacts(HISTORICAL_RATES_FILE, historical_room_rates)
+    save_joblib_artifacts(MADEBY_ENCODER_FILE, OH_encoder)
+    logging.info(f"Preprocessing artifacts saved")
 
 # exclusively for inference
-def load_lookup_artifacts(
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+def load_preprocessing_artifacts() -> tuple[pd.DataFrame, pd.DataFrame, OneHotEncoder]:
     return (
-        load_room_code_lookup(),
-        load_historical_room_rates(),
+        load_joblib_artifacts(ARTIFACTS_PATH / ROOM_CODE_LOOKUP_FILE), # room code lookup table
+        load_joblib_artifacts(ARTIFACTS_PATH / HISTORICAL_RATES_FILE), # historical room rates lookup table
+        load_joblib_artifacts(ARTIFACTS_PATH / MADEBY_ENCODER_FILE) # OneHotEncoder for madeby column
     )
 
-
-def save_madeby_encoder(
-    encoder: OneHotEncoder
+def _save_json_artifacts(
+    filepath: str,
+    artifacts: dict
 ) -> None:
-    path = ARTIFACTS_PATH
-    path.mkdir(parents=True, exist_ok=True)
-    file_path = path / MADEBY_ENCODER_FILE
-    joblib.dump(encoder, file_path)
-
-
-def load_madeby_encoder() -> OneHotEncoder:
-    try:
-        file_path = ARTIFACTS_PATH / MADEBY_ENCODER_FILE
-        return joblib.load(file_path)
-    except Exception as e:
-        raise CustomException(f"Error loading madeby encoder: {e}", sys)
-
-    
-def save_prediction_artifacts(
-    best_threshold: float, 
-    precision_vals: list | None, 
-    recall_vals: list | None, 
-    threshold_vals: list | None
-    ) -> None:
-    prediction_artifacts = {}
-
-    if threshold_vals is not None or precision_vals is not None or recall_vals is not None:
-        logging.info(f"Threshold tuning was performed")
-        if not isinstance(precision_vals, list):
-            raise TypeError(f"Precision values must be a list, got {type(precision_vals)}")
-        if not isinstance(recall_vals, list):
-            raise TypeError(f"Recall values must be a list, got {type(recall_vals)}")
-        if not isinstance(threshold_vals, list):
-            raise TypeError(f"Threshold values must be a list, got {type(threshold_vals)}")
-        if not (len(precision_vals) == len(recall_vals) == len(threshold_vals)):
-            raise ValueError(f"""Precision, recall, and threshold values must have the same length, 
-                                got {len(precision_vals)}, {len(recall_vals)}, {len(threshold_vals)}""")
-        logging.info(f"Precision, recall, and threshold values have the same length and correct type")
-        prediction_artifacts = {
-            "precision_vals": precision_vals,
-            "recall_vals": recall_vals,
-            "threshold_vals": threshold_vals
-        }
-
-    if type(float(best_threshold)) != float:
-        raise TypeError(f"Threshold must be a float, got {type(best_threshold)}")
-    logging.info(f"Threshold is a float and correct type")
-    prediction_artifacts['best_threshold'] = float(best_threshold)
-    
     ARTIFACTS_PATH.mkdir(parents=True, exist_ok=True)
-    filepath = ARTIFACTS_PATH / "prediction_artifacts.json"
-    with open(filepath, 'w') as f:
-        json.dump(prediction_artifacts, f)
-    logging.info(f"Prediction artifacts saved to {filepath}")
+    full_path = ARTIFACTS_PATH / filepath
+    with open(full_path, 'w') as f:
+        json.dump(artifacts, f)
+    logging.info(f"Artifacts saved to {full_path}")
+    
+def save_threshold_artifacts(
+    precision_vals: list,
+    recall_vals: list,
+    threshold_vals: list
+) -> None:
+    if not precision_vals:
+        raise CustomException(f"Precision values not found in threshold artifacts", sys)
+    if not recall_vals:
+        raise CustomException(f"Recall values not found in threshold artifacts", sys)
+    if not threshold_vals:
+        raise CustomException(f"Threshold values not found in threshold artifacts", sys)
+    if not (len(precision_vals) == len(recall_vals) == len(threshold_vals)):
+        raise CustomException(f"""Precision, recall, and threshold values must have the same length, 
+                                got {len(precision_vals)}, {len(recall_vals)}, {len(threshold_vals)}""", sys)
 
-def load_saved_prediction_artifacts(filepath: Path | None) -> dict:
-    if filepath is None:
-        filepath = ARTIFACTS_PATH / "prediction_artifacts.json"
-    if not filepath.exists():
-        raise FileNotFoundError(f"File {filepath} not found")
-    with open(filepath, 'r') as f:
-        prediction_artifacts = json.load(f)
-    return prediction_artifacts
+    logging.info(f"Precision, recall, and threshold values have the same length and correct type")
+
+    threshold_artifacts = {
+        "precision_vals": precision_vals,
+        "recall_vals": recall_vals,
+        "threshold_vals": threshold_vals
+    }
+
+    _save_json_artifacts("threshold_artifacts.json", threshold_artifacts)
+    logging.info(f"Threshold artifacts saved")
+
+
+def save_prediction_artifacts(
+    best_threshold: float,
+    min_accepted_precision: float
+    ) -> None:
+    try:
+        prediction_artifacts = {
+            "best_threshold": float(best_threshold),
+            "min_accepted_precision": float(min_accepted_precision)
+        }
+        _save_json_artifacts("prediction_artifacts.json", prediction_artifacts)
+        logging.info(f"Prediction artifacts saved")
+    except TypeError as e:
+        logging.error(f"Must be a float, got {type(best_threshold)}: {e}")
+        raise CustomException(f"Type error: {e}", sys)
+    except ValueError as e:
+        logging.error(f"Value error: {e}")
+        raise CustomException(f"Value error: {e}", sys)
+    except Exception as e:
+        logging.error(f"Error saving prediction artifacts: {e}")
+        raise CustomException(f"Error saving prediction artifacts: {e}", sys)
+
+def load_json_artifacts(filepath: Path) -> dict:
+    try:
+        with open(filepath, 'r') as f:
+            artifacts = json.load(f)
+        logging.info(f"JSON artifacts loaded from {filepath}")
+        return artifacts
+    except FileNotFoundError as e:
+        logging.error(f"File not found: {e}")
+        raise CustomException(f"File not found: {e}", sys)
+    except json.JSONDecodeError as e:
+        logging.error(f"Error decoding JSON: {e}")
+        raise CustomException(f"Error decoding JSON: {e}", sys)
+    except Exception as e:
+        logging.error(f"Error loading JSON artifacts: {e}")
+        raise CustomException(f"Error loading JSON artifacts: {e}", sys)
