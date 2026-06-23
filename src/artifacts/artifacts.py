@@ -1,13 +1,13 @@
 from pathlib import Path
-from src.config.settings import ARTIFACTS_PATH
+from config.settings import ARTIFACTS_PATH
 import joblib
 import pandas as pd
 from sklearn.preprocessing import OneHotEncoder
-from src.exceptions import CustomException
-from src.logger import logging
+from exceptions import CustomException
+from logger import logging
 import sys
 import json
-
+from datetime import datetime
 
 ROOM_CODE_LOOKUP_FILE = "room_code_lookup.joblib"
 HISTORICAL_RATES_FILE = "historical_room_rates.joblib"
@@ -92,12 +92,14 @@ def save_threshold_artifacts(
 
 def save_prediction_artifacts(
     best_threshold: float,
-    min_accepted_precision: float
+    min_accepted_precision: float,
+    train_inference_time_cutoff: datetime
     ) -> None:
     try:
         prediction_artifacts = {
             "best_threshold": float(best_threshold),
-            "min_accepted_precision": float(min_accepted_precision)
+            "min_accepted_precision": float(min_accepted_precision),
+            "train_inference_time_cutoff": train_inference_time_cutoff.isoformat()
         }
         _save_json_artifacts("prediction_artifacts.json", prediction_artifacts)
         logging.info(f"Prediction artifacts saved")
@@ -108,7 +110,7 @@ def save_prediction_artifacts(
         logging.error(f"Value error: {e}")
         raise CustomException(f"Value error: {e}", sys)
     except Exception as e:
-        logging.error(f"Error saving prediction artifacts: {e}")
+        logging.exception(f"Error saving prediction artifacts: %s", e)
         raise CustomException(f"Error saving prediction artifacts: {e}", sys)
 
 def load_json_artifacts(filepath: Path) -> dict:
