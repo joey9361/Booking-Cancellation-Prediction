@@ -1,8 +1,8 @@
-from src.utils import csv_to_staging_tables
-from src.testing_database import create_datamanager, Database
-from src.config.settings import PROJECT_ROOT, CREATE_SCHEMA_SQL_PATHS, PREPROCESSING_SQL_PATHS
-from src.exceptions import CustomException
-from src.logger import logging
+from utils import csv_to_staging_tables
+from testing_database import create_datamanager, Database
+from config.settings import PROJECT_ROOT, CREATE_SCHEMA_SQL_PATHS, PREPROCESSING_SQL_PATHS
+from exceptions import CustomException
+from logger import logging
 import sys
 from dotenv import load_dotenv
 

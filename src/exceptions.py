@@ -1,15 +1,19 @@
 import sys
-from logger import logging
+
 
 def error_message_detail(error, error_detail: sys) -> str:
-        _,_,exc_tb = error_detail.exc_info()
-        file_name = exc_tb        
-        error_message = f"Error occured in python script name [{0}] line number [{1}] error message [{2}]".format(
-            file_name,
-            exc_tb.tb_lineno,
-            str(error)
-            )
-        return error_message
+    """Build an error string with file, line, and the active exception if any."""
+    _, exc_value, exc_tb = error_detail.exc_info()
+
+    if exc_tb is None:
+        return str(error)
+
+    file_name = exc_tb.tb_frame.f_code.co_filename
+    line_no = exc_tb.tb_lineno
+    message = exc_value if exc_value is not None else error
+
+    return f"Error in [{file_name}] line [{line_no}] message [{message}]"
+
 
 class CustomException(Exception):
     def __init__(self, error_message, error_detail: sys):
@@ -21,8 +25,10 @@ class CustomException(Exception):
 
 
 if __name__ == "__main__":
+    from logger import logging
+
     try:
-        a = 1/0
+        _ = 1 / 0
     except Exception as e:
-        logging.info("Divide by zero error")
-        raise CustomException(e, sys)
+        logging.exception("Divide by zero error")
+        raise CustomException(e, sys) from e
