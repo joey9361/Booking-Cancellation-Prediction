@@ -3,40 +3,25 @@ from fastapi import FastAPI, HTTPException
 from src.artifacts.artifacts import load_json_artifacts, load_preprocessing_artifacts, load_joblib_artifacts
 from backend.model import apply_best_threshold
 from backend.preprocessing import run_online_preprocessing
-from src.config.settings import ARTIFACTS_PATH, MODEL_PATH
+from src.config.settings import ARTIFACTS_PATH, MODEL_PATH, LOAD_ONLINE_DATA_QUERY, TRAIN_INFERENCE_TIME_CUTOFF, FETCH_INFERENCE_ROWS_QUERY
 from pydantic import BaseModel, Field, ConfigDict
 from src.exceptions import CustomException
 from src.logger import logging
 from dotenv import load_dotenv
+from src.testing_database import create_datamanager
 
 load_dotenv()
 
 class BookingRow(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
-    resid: int
-    ref: int
-    book_owner: str
-    booked_on: str = Field(alias="booked on")
+    ref: str
     property_name: str
     arrival_date: str
     departure_date: str
-    nights: int
-    pax: int 
-    custid: str | None
-    customer_notes: str | None
-    cust_country: str | None
-    date_cancelled: str | None
-    status: str | None
-    unit_code: str | None
-    room_code: str | None
-    room_amount: float | None
-    extras_amount: float | None
-    tot_amount: float | None
-    pay_amount: float | None
-    madeby: str | None
-    voucher: str | None
-    balance: float | None
-
+    # Only required for inference
+    booked_on: str | None = Field(alias="booked on", default=None) 
+    is_frozen: bool | None = None
+    is_cancelled: bool | None = None
 
 class Prediction(BaseModel):
     will_cancel: bool
@@ -53,6 +38,8 @@ async def lifespan(app: FastAPI):
     if not model_path:
         raise RuntimeError("MODEL_PATH is not set in settings.py")
     try:
+        app.state.datamanager = create_datamanager()
+        logging.info(f"Datamanager created successfully")
         app.state.model = load_joblib_artifacts(model_path)
         logging.info(f"Model loaded successfully")
         app.state.prediction_artifacts = load_json_artifacts(
@@ -76,6 +63,7 @@ async def lifespan(app: FastAPI):
     app.state.model = None
     app.state.prediction_artifacts = None
     app.state.preprocessing_artifacts = None
+    app.state.datamanager = None
     logging.info("Model unloaded")
 
 app = FastAPI(lifespan=lifespan)
@@ -113,22 +101,57 @@ def get_threshold_artifacts():
     return ThresholdArtifacts(**threshold_artifacts)
 
 @app.post("/predict-booking-cancellation", response_model=Prediction)
-def predict_booking_cancellation(booking_rows: list[BookingRow], threshold: float | None = None):
+def predict_booking_cancellation(booking_rows: BookingRow, threshold: float | None = None):
     """Inference prediction for a single booking with one or multiple room level rows of data"""
-    if threshold is None:
-        threshold = app.state.prediction_artifacts['best_threshold']
-    # convert pydantic objects for each row to dicts
-    booking = [row.model_dump(by_alias=True) for row in booking_rows]
-    room_code_lookup, room_rate_lookup, OH_encoder = app.state.preprocessing_artifacts
-    X = run_online_preprocessing(booking, room_code_lookup, room_rate_lookup, OH_encoder)
-    # get model
-    model = app.state.model
-    prediction, confidence = apply_best_threshold(model, X, threshold)
-    return Prediction(
-        will_cancel=prediction[0], 
-        confidence_probability=confidence[0])
+    try:
+        if threshold is None:
+            threshold = app.state.prediction_artifacts['best_threshold']
+        # fetch inference rows from database
+        booking = app.state.datamanager.load_query(
+            FETCH_INFERENCE_ROWS_QUERY, 
+            params={
+                'ref': booking_rows.ref, 
+                'property_name': booking_rows.property_name, 
+                'arrival_date': booking_rows.arrival_date, 
+                'departure_date': booking_rows.departure_date
+                }
+            )
+        if booking.empty:
+            logging.error(f"Booking not found in database via booking keys: {booking_rows.model_dump(by_alias=True)}")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Booking not found in database, try selecting a different booking"
+            )
+        logging.info(f"Booking fetched successfully from database")
+        room_code_lookup, room_rate_lookup, OH_encoder = app.state.preprocessing_artifacts
+        X = run_online_preprocessing(booking, room_code_lookup, room_rate_lookup, OH_encoder)
+        logging.info(f"Online preprocessing completed successfully")
+        # get model
+        model = app.state.model
+        prediction, confidence = apply_best_threshold(model, X, threshold)
+        logging.info(f"Prediction completed successfully")
+        return Prediction(
+                will_cancel=prediction[0], 
+                confidence_probability=confidence[0])
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logging.error(f"Error predicting booking cancellation: {e}")
+        raise RuntimeError(f"Error predicting booking cancellation: {e}") from e
 
-@app.get('/database-bookings-inference')
+@app.get('/database-bookings-inference', response_model=list[BookingRow])
 def database_bookings_inference():
-    pass
-
+    """
+    Query the database at streamlit startup to get the booking data options 
+    for inference given a set time cutoff
+    """
+    try:
+        df = app.state.datamanager.load_query(
+            LOAD_ONLINE_DATA_QUERY, 
+            params={'time_cutoff': TRAIN_INFERENCE_TIME_CUTOFF})
+        logging.info(f"Bookings fetched successfully from database")
+        return [BookingRow.model_validate(row) for row in df.to_dict(orient='records')]
+    except Exception as e:
+        logging.error(f"Error fetching bookings from database: {e}")
+        raise RuntimeError(f"Error fetching bookings from database: {e}") from e
+    
