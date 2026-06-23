@@ -25,7 +25,9 @@ def save_joblib_artifacts(
 
 def load_joblib_artifacts(filepath: Path) -> pd.DataFrame | OneHotEncoder:
     try:
-        joblib.load(filepath)
+        artifact = joblib.load(filepath)
+        logging.info(f"Joblib artifacts loaded from {filepath}")
+        return artifact
     except FileNotFoundError as e:
         logging.error(f"File not found: {e}")
         raise CustomException(f"File not found: {e}", sys)
