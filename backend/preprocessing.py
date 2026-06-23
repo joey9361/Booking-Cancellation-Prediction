@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 from typing import Any
+
+from pandas.errors import EmptyDataError
 from src.config.settings import MOTEL_DIRECT_CHANNEL, BOOKING_KEY
 from sklearn.preprocessing import OneHotEncoder
 from src.exceptions import CustomException
@@ -286,11 +288,11 @@ def run_online_preprocessing(
     df = _ensure_dataframe(df)
     df = clean_data(df)
     if df.empty:
-        raise CustomException("Dataframe is empty, clean_data failed, fix source data", sys)
+        raise ValueError("Dataframe is empty, clean_data failed, fix source data")
     df = room_level_preprocessing(df, is_offline=False)
 
     if room_code_lookup.empty or room_rate_lookup.empty:
-        raise CustomException("Lookup table artifacts are empty, run offline preprocessing first", sys)
+        raise ValueError("Lookup table artifacts are empty, run offline preprocessing first")
     X, _ = full_custom_transform(
         df, room_code_lookup, room_rate_lookup, OH_encoder, is_offline=False
     )

@@ -1,25 +1,30 @@
 from src.testing_database import create_datamanager
-from preprocessing import run_offline_preprocessing, full_custom_transform
-from model import initialize_model, apply_best_threshold, xgb_scale_pos_weight
-from tuning import custom_hyperparameter_tuning, custom_temporal_cv, find_best_threshold
-from evaluation import evaluate_custom_predictions
-from src.config.settings import LOAD_OFFLINE_DATA_QUERY,MODEL_PARAMS, PARAM_TUNING_GRID, GRID_SEARCH_PARAMS, MODEL_PATH, MIN_ACCEPTED_PRECISION, ARTIFACTS_PATH
+from backend.preprocessing import run_offline_preprocessing, full_custom_transform
+from backend.model import initialize_model, apply_best_threshold, xgb_scale_pos_weight
+from backend.tuning import custom_hyperparameter_tuning, custom_temporal_cv, find_best_threshold
+from backend.evaluation import evaluate_custom_predictions
+from src.config.settings import (
+    LOAD_OFFLINE_DATA_QUERY,MODEL_PARAMS, PARAM_TUNING_GRID, GRID_SEARCH_PARAMS, 
+    MODEL_PATH, MIN_ACCEPTED_PRECISION, ARTIFACTS_PATH, TRAIN_INFERENCE_TIME_CUTOFF
+    )
 from joblib import dump
 from src.artifacts.artifacts import save_prediction_artifacts, save_threshold_artifacts, load_preprocessing_artifacts   
 from src.logger import logging
 from src.exceptions import CustomException
 import sys
 from dotenv import load_dotenv
+from argparse import ArgumentParser
 
 load_dotenv()
 
 def main(
     model_type: str = 'random_forest', 
-    hyperparameter_tuning: bool = True, 
-    threshold_tuning: bool = True): # add argument options for tuning the model etc
+    hyperparameter_tuning: bool = False, 
+    threshold_tuning: bool = False): # add argument options for tuning the model etc
     # Load the data
     datamanager = create_datamanager()
-    df = datamanager.load_query(LOAD_OFFLINE_DATA_QUERY)
+    df = datamanager.load_query(LOAD_OFFLINE_DATA_QUERY, params={"time_cutoff": TRAIN_INFERENCE_TIME_CUTOFF})
+    logging.info(f"Loaded {len(df)} rows of offline data")
 
     X_train, Y_train, full_val, full_test = run_offline_preprocessing(df)
     room_code_lookup, room_rate_lookup, OH_encoder = load_preprocessing_artifacts()
@@ -28,7 +33,7 @@ def main(
 
     # Train the model with default params
     model_params = {**MODEL_PARAMS[model_type]}
-    if model_type == "xgboost":
+    if model_type == "xgb":
         model_params["scale_pos_weight"] = xgb_scale_pos_weight(Y_train)
     model = initialize_model(model_type, model_params)
     if hyperparameter_tuning:
@@ -69,6 +74,4 @@ def main(
 
 
 if __name__ == "__main__":
-    from src.testing_database import create_datamanager
-    datamanager = create_datamanager()
-    main()
+    pass

@@ -14,7 +14,7 @@ def initialize_model(
     """Initializes the model with the given type and parameters."""
     if model_type == "random_forest":
         model = RandomForestClassifier(**(model_params or {}))
-    elif model_type == "xgboost":
+    elif model_type == "xgb":
         model = XGBClassifier(**(model_params or {}))
     else:
         raise ValueError(f"Invalid model type: {model_type}")
