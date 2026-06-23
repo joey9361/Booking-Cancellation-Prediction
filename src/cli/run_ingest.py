@@ -2,7 +2,7 @@ def run_ingest():
     from argparse import ArgumentParser
     import sys
     import logging
-    from src.ingest import ingest_new_data_pipeline
+    from ingest import ingest_new_data_pipeline
     
     parser = ArgumentParser()
     parser.add_argument("csv_path", type=str, help="CSV file name to ingest")
