@@ -3,12 +3,14 @@ from fastapi import FastAPI, HTTPException
 from src.artifacts.artifacts import load_json_artifacts, load_preprocessing_artifacts, load_joblib_artifacts
 from backend.model import apply_best_threshold
 from backend.preprocessing import run_online_preprocessing
-from src.config.settings import ARTIFACTS_PATH, MODEL_PATH, LOAD_ONLINE_DATA_QUERY, TRAIN_INFERENCE_TIME_CUTOFF, FETCH_INFERENCE_ROWS_QUERY
+from src.config.settings import ARTIFACTS_PATH, MODEL_PATH, LOAD_ONLINE_DATA_QUERY, FETCH_INFERENCE_ROWS_QUERY
 from pydantic import BaseModel, Field, ConfigDict
 from src.exceptions import CustomException
 from src.logger import logging
 from dotenv import load_dotenv
 from src.testing_database import create_datamanager
+import os
+from datetime import datetime
 
 load_dotenv()
 
@@ -76,7 +78,8 @@ def health_check():
 def get_prediction_artifacts():
     return {
         "best_threshold": float(app.state.prediction_artifacts['best_threshold']),
-        "min_accepted_precision": float(app.state.prediction_artifacts['min_accepted_precision'])
+        "min_accepted_precision": float(app.state.prediction_artifacts['min_accepted_precision']),
+        "train_inference_time_cutoff": app.state.prediction_artifacts['train_inference_time_cutoff']
     }
 
 @app.get("/threshold-artifacts", response_model=ThresholdArtifacts)
@@ -146,12 +149,23 @@ def database_bookings_inference():
     for inference given a set time cutoff
     """
     try:
+        train_inference_time_cutoff = app.state.prediction_artifacts['train_inference_time_cutoff']
         df = app.state.datamanager.load_query(
             LOAD_ONLINE_DATA_QUERY, 
-            params={'time_cutoff': TRAIN_INFERENCE_TIME_CUTOFF})
+            params={'time_cutoff': datetime.fromisoformat(train_inference_time_cutoff)})
         logging.info(f"Bookings fetched successfully from database")
         return [BookingRow.model_validate(row) for row in df.to_dict(orient='records')]
     except Exception as e:
         logging.error(f"Error fetching bookings from database: {e}")
         raise RuntimeError(f"Error fetching bookings from database: {e}") from e
     
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+    uvicorn.run(
+        "app:app",  # Replace 'your_filename' with your actual filename
+        host=os.getenv("FASTAPI_HOST", '127.0.0.1'),
+        port=int(os.getenv("FASTAPI_PORT", '8000')),
+        reload=os.getenv("DEBUG_MODE", True)  # Auto-reload when DEBUG=True
+    ) 
