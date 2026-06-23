@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import datetime, timedelta
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 # Columns to drop from dataframe
@@ -16,6 +17,12 @@ USELESS_COLS = [
     "inv_amount",
 ]
 
+RELEVANT_COLS = ['resid', 'ref', 'book_owner', 'booked on', 'property_name',
+       'arrival_date', 'departure_date', 'nights', 'custid', 'customer_notes',
+       'cust_country', 'date_cancelled', 'status', 'pax', 'unit_code',
+       'room_code', 'room_amount', 'extras_amount', 'tot_amount', 'pay_amount',
+       'madeby', 'voucher', 'balance']
+
 MOTEL_DIRECT_CHANNEL = ['staffs', 'luo', 'alanaga', '136bealeyairbnb1', '136bealeyreconlin']
 
 BOOKING_KEY = ['ref', 'is_136_motel', 'arrival_date', 'departure_date']
@@ -26,7 +33,7 @@ MODEL_PARAMS = {
         'random_state': 67,
         'class_weight': 'balanced',
     },
-    "xgboost": {
+    "xgb": {
         "n_jobs": -2,
         "random_state": 67,
         "scale_pos_weight": 1.0,
@@ -39,7 +46,7 @@ PARAM_TUNING_GRID = {
         "max_depth": [10, 20, None],
         "min_samples_leaf": [1, 5],
     },
-    "xgboost": {
+    "xgb": {
         "n_estimators": [100, 200],
         "max_depth": [4, 6, 8],
         "learning_rate": [0.05, 0.1],
@@ -59,12 +66,49 @@ LOAD_OFFLINE_DATA_QUERY = """
                             SELECT resid, ref, book_owner, "booked on", property_name, arrival_date, 
                             departure_date, nights, custid, customer_notes, cust_country, date_cancelled, 
                             status, pax, unit_code, room_code, room_amount, extras_amount, tot_amount, 
-                            pay_amount, madeby, voucher, balance FROM offline_bookings WHERE room_code IS NOT NULL
+                            pay_amount, madeby, voucher, balance 
+                            FROM serving_booking_rooms 
+                            WHERE room_code IS NOT NULL
+                            AND is_frozen = true
+                            AND "booked on" < :time_cutoff
                             """
 
 LOAD_ONLINE_DATA_QUERY = """
+                            SELECT ref, MIN("booked on")::TEXT as "booked on", property_name, 
+                            arrival_date::TEXT, departure_date::TEXT, MAX(is_frozen) as is_frozen,
+                            CASE
+                                WHEN MAX(is_frozen) = FALSE THEN NULL
+                                WHEN bool_or(date_cancelled IS NOT NULL) THEN TRUE
+                                ELSE FALSE
+                            END as is_cancelled
+                            FROM serving_booking_rooms
+                            WHERE "booked on" >= :time_cutoff
+                            GROUP BY ref, property_name, arrival_date, departure_date
+                            ORDER BY MIN("booked on"::TIMESTAMP) DESC
+                        """
+
+FETCH_INFERENCE_ROWS_QUERY = """
                             SELECT resid, ref, book_owner, "booked on", property_name, arrival_date, 
                             departure_date, nights, custid, customer_notes, cust_country, date_cancelled, 
                             status, pax, unit_code, room_code, room_amount, extras_amount, tot_amount, 
-                            pay_amount, madeby, voucher, balance FROM online_bookings
+                            pay_amount, madeby, voucher, balance 
+                            FROM serving_booking_rooms
+                            WHERE ref = :ref
+                            AND property_name = :property_name
+                            AND arrival_date::TEXT = :arrival_date
+                            AND departure_date::TEXT = :departure_date
                             """
+
+TRAIN_INFERENCE_TIME_CUTOFF = datetime.now() - timedelta(days=90)
+
+CREATE_SCHEMA_SQL_PATHS = [
+    PROJECT_ROOT / "sql" / "create_staging.sql",
+    PROJECT_ROOT / "sql" / "create_serving.sql",
+    PROJECT_ROOT / "sql" / "create_finals.sql",
+]
+
+PREPROCESSING_SQL_PATHS = [
+    PROJECT_ROOT / "sql" / "validation.sql",
+    PROJECT_ROOT / "sql" / "merge_finals_to_serving.sql"
+]
+
