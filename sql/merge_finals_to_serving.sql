@@ -190,5 +190,5 @@ SELECT
     balance, is_frozen
 FROM transition_rows;
 
--- A) Frozen bookings in serving: no action.
+
 
