@@ -45,7 +45,6 @@ def save_preprocessing_artifacts(
     save_joblib_artifacts(MADEBY_ENCODER_FILE, OH_encoder)
     logging.info(f"Preprocessing artifacts saved")
 
-# exclusively for inference
 def load_preprocessing_artifacts() -> tuple[pd.DataFrame, pd.DataFrame, OneHotEncoder]:
     return (
         load_joblib_artifacts(ARTIFACTS_PATH / ROOM_CODE_LOOKUP_FILE), # room code lookup table

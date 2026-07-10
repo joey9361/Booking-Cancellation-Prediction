@@ -7,7 +7,7 @@ def run_main():
     parser.add_argument(
         "--model", 
         choices=["random_forest", "xgb"], 
-        default="random_forest", 
+        default="xgb", 
         help="Model type to use"
         )
     parser.add_argument(

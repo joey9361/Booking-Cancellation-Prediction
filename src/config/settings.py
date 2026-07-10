@@ -54,7 +54,7 @@ PARAM_TUNING_GRID = {
     }
 }
 
-MIN_ACCEPTED_PRECISION = 0.73
+MIN_ACCEPTED_PRECISION = 0.875
 
 ARTIFACTS_PATH = PROJECT_ROOT / "src" / "artifacts"
 MADEBY_ENCODER_FILE = ARTIFACTS_PATH / "madeby_encoder.joblib"
@@ -75,14 +75,15 @@ LOAD_OFFLINE_DATA_QUERY = """
 
 LOAD_ONLINE_DATA_QUERY = """
                             SELECT ref, MIN("booked on")::TEXT as "booked on", property_name, 
-                            arrival_date::TEXT, departure_date::TEXT, MAX(is_frozen) as is_frozen,
+                            arrival_date::TEXT, departure_date::TEXT, BOOL_OR(is_frozen) as is_frozen,
                             CASE
-                                WHEN MAX(is_frozen) = FALSE THEN NULL
-                                WHEN bool_or(date_cancelled IS NOT NULL) THEN TRUE
+                                WHEN BOOL_OR(is_frozen) = FALSE THEN NULL
+                                WHEN BOOL_OR(date_cancelled IS NOT NULL) THEN TRUE
                                 ELSE FALSE
                             END as is_cancelled
                             FROM serving_booking_rooms
                             WHERE "booked on" >= :time_cutoff
+                            AND "booked on" < arrival_date
                             GROUP BY ref, property_name, arrival_date, departure_date
                             ORDER BY MIN("booked on"::TIMESTAMP) DESC
                         """
@@ -91,7 +92,7 @@ FETCH_INFERENCE_ROWS_QUERY = """
                             SELECT resid, ref, book_owner, "booked on", property_name, arrival_date, 
                             departure_date, nights, custid, customer_notes, cust_country, date_cancelled, 
                             status, pax, unit_code, room_code, room_amount, extras_amount, tot_amount, 
-                            pay_amount, madeby, voucher, balance 
+                            pay_amount, madeby, voucher, balance, is_frozen
                             FROM serving_booking_rooms
                             WHERE ref = :ref
                             AND property_name = :property_name
@@ -99,7 +100,7 @@ FETCH_INFERENCE_ROWS_QUERY = """
                             AND departure_date::TEXT = :departure_date
                             """
 
-TRAIN_INFERENCE_TIME_CUTOFF = datetime.now() - timedelta(days=90)
+
 
 CREATE_SCHEMA_SQL_PATHS = [
     PROJECT_ROOT / "sql" / "create_staging.sql",

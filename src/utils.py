@@ -1,6 +1,6 @@
 import pandas as pd
 from config.settings import PROJECT_ROOT, RELEVANT_COLS
-from testing_database import Database
+from database import Database
 from exceptions import CustomException
 from logger import logging
 import sys
