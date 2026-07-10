@@ -1,14 +1,14 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from src.artifacts.artifacts import load_json_artifacts, load_preprocessing_artifacts, load_joblib_artifacts
-from backend.model import apply_best_threshold
-from backend.preprocessing import run_online_preprocessing
+from src.backend.model import apply_best_threshold
+from src.backend.preprocessing import run_online_preprocessing
 from src.config.settings import ARTIFACTS_PATH, MODEL_PATH, LOAD_ONLINE_DATA_QUERY, FETCH_INFERENCE_ROWS_QUERY
 from pydantic import BaseModel, Field, ConfigDict
 from src.exceptions import CustomException
 from src.logger import logging
 from dotenv import load_dotenv
-from src.testing_database import create_datamanager
+from src.database import create_datamanager
 import os
 from datetime import datetime
 
@@ -28,6 +28,7 @@ class BookingRow(BaseModel):
 class Prediction(BaseModel):
     will_cancel: bool
     confidence_probability: float
+    actual_target: bool | None = None
 
 class ThresholdArtifacts(BaseModel):
     precision_vals: list[float]
@@ -133,13 +134,16 @@ def predict_booking_cancellation(booking_rows: BookingRow, threshold: float | No
         model = app.state.model
         prediction, confidence = apply_best_threshold(model, X, threshold)
         logging.info(f"Prediction completed successfully")
+        # get actual target variable if booking is inactive
+        actual_target = bool(booking['date_cancelled'].notnull()[0]) if booking['is_frozen'][0] else None
         return Prediction(
                 will_cancel=prediction[0], 
-                confidence_probability=confidence[0])
+                confidence_probability=confidence[0],
+                actual_target=actual_target)
     except HTTPException as e:
         raise e
     except Exception as e:
-        logging.error(f"Error predicting booking cancellation: {e}")
+        logging.exception(f"Error predicting booking cancellation: %s", e)
         raise RuntimeError(f"Error predicting booking cancellation: {e}") from e
 
 @app.get('/database-bookings-inference', response_model=list[BookingRow])
@@ -161,11 +165,11 @@ def database_bookings_inference():
     
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # uvicorn.run(app, host="0.0.0.0", port=8000)
 
     uvicorn.run(
-        "app:app",  # Replace 'your_filename' with your actual filename
-        host=os.getenv("FASTAPI_HOST", '127.0.0.1'),
-        port=int(os.getenv("FASTAPI_PORT", '8000')),
-        reload=os.getenv("DEBUG_MODE", True)  # Auto-reload when DEBUG=True
+        "app:app",
+        host=os.getenv("FASTAPI_HOST", "0.0.0.0"),
+        port=int(os.getenv("FASTAPI_PORT", "8000")),
+        reload=False,
     ) 
